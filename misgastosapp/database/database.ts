@@ -23,6 +23,17 @@ export interface Configuracion {
   fecha_creacion: string;
 }
 
+export interface GastoMensual {
+  periodo: string; // Ej: '2025-11'
+  total: number;
+}
+
+export interface GastoPorCategoria {
+  categoria_nombre: string;
+  totalGastado: number;
+}
+
+
 // Variable global para mantener la conexión
 let db: SQLite.SQLiteDatabase | null = null;
 let isInitializing = false;
@@ -292,7 +303,7 @@ export const agregarMovimiento = async (
   });
 };
 
-// Obtener movimientos (con límite opcional)
+
 export const obtenerMovimientos = async (limite?: number): Promise<Movimiento[]> => {
   try {
     const database = await getDatabase();
@@ -511,4 +522,132 @@ export const eliminarCategoria = async (id: number): Promise<void> => {
       throw error;
     }
   });
+};
+export const obtenerGastosPorRango = async (
+  fechaInicio: string,
+  fechaFin: string
+): Promise<number> => {
+  try {
+    const database = await getDatabase();
+
+    // Consulta SQL para sumar los montos de tipo 'gasto'
+    // que caen entre la fecha de inicio y la fecha de fin (inclusive).
+    const result = await database.getFirstAsync<{ total: number | null }>(
+      `SELECT SUM(monto) as total 
+       FROM movimientos 
+       WHERE tipo = 'gasto' 
+       AND fecha >= ? 
+       AND fecha <= ?`,
+      [fechaInicio, fechaFin]
+    );
+
+    return result?.total || 0;
+  } catch (error) {
+    console.error('Error al obtener gastos por rango:', error);
+    return 0;
+  }
+};
+
+export interface GastoSemanal {
+  periodo: string; // Ej: '2025-44' (Año-Semana)
+  total: number;
+}
+
+export const obtenerInformeGastosSemanal = async (limiteSemanas: number = 8): Promise<GastoSemanal[]> => {
+  try {
+    const database = await getDatabase();
+
+    const query = `
+      SELECT 
+        strftime('%Y-%W', fecha) as periodo,
+        SUM(monto) as total
+      FROM movimientos
+      WHERE tipo = 'gasto'
+      GROUP BY periodo
+      ORDER BY periodo DESC
+      LIMIT ?;
+    `;
+    
+    return await database.getAllAsync<GastoSemanal>(query, [limiteSemanas]);
+  } catch (error) {
+    console.error('Error al obtener informe semanal:', error);
+    return [];
+  }
+};
+
+const getMonthStartAndEnd = (anioMes: string): { start: string, end: string } => {
+    const [anio, mes] = anioMes.split('-').map(Number);
+    
+    const dateStart = new Date(anio, mes - 1, 1); 
+
+    const dateEnd = new Date(anio, mes, 0); 
+
+    const formatDate = (date: Date): string => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+
+    return {
+        start: formatDate(dateStart),
+        end: formatDate(dateEnd),
+    };
+};
+
+
+// --- Funciones de Informe ---
+
+// 1. Informe de Gastos Agrupados por Mes (Tendencia)
+export const obtenerInformeGastosMensual = async (limiteMeses: number = 6): Promise<GastoMensual[]> => {
+  try {
+    const database = await getDatabase();
+
+    const query = `
+      SELECT 
+        strftime('%Y-%m', fecha) as periodo,
+        SUM(monto) as total
+      FROM movimientos
+      WHERE tipo = 'gasto'
+      GROUP BY periodo
+      ORDER BY periodo DESC
+      LIMIT ?;
+    `;
+    
+    return await database.getAllAsync<GastoMensual>(query, [limiteMeses]);
+  } catch (error) {
+    console.error('Error al obtener informe mensual:', error);
+    return [];
+  }
+};
+
+export const obtenerGastosPorCategoriaMensual = async (
+  anioMes: string 
+): Promise<GastoPorCategoria[]> => {
+  try {
+    const database = await getDatabase();
+    
+    const { start: fechaInicio, end: fechaFin } = getMonthStartAndEnd(anioMes);
+
+    const query = `
+      SELECT 
+        c.nombre as categoria_nombre,
+        SUM(m.monto) as totalGastado
+      FROM movimientos m
+      INNER JOIN categorias c ON m.categoria_id = c.id
+      WHERE m.tipo = 'gasto'
+        AND m.fecha >= ?
+        AND m.fecha <= ?
+      GROUP BY c.nombre
+      ORDER BY totalGastado DESC;
+    `;
+    
+    const params = [fechaInicio, fechaFin];
+    
+    return await database.getAllAsync<GastoPorCategoria>(query, params);
+
+  } catch (error) {
+    console.error('Error al obtener gastos por categoría mensual:', error);
+    return [];
+  }
 };

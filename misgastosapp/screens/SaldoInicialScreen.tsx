@@ -38,7 +38,7 @@ export default function SaldoInicialScreen({ onSaldoGuardado }: SaldoInicialScre
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={'height'}
       style={styles.container}
     >
       <View style={styles.content}>
